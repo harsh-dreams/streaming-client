@@ -1,93 +1,44 @@
 import React, { useEffect, useRef } from 'react';
 import socket from '../socket';
-import { useParams } from 'react-router-dom';
 
-const Viewer = () => {
-  const videoRef = useRef();
-  const { roomId } = useParams();
-  const mediaSourceRef = useRef(null);
-  const sourceBufferRef = useRef(null);
-  const queue = useRef([]);
-  const isAppending = useRef(false); // To prevent multiple appends
+const VideoViewer = () => {
+  const videoRef = useRef(null);
+  const currentUrlRef = useRef(null);
 
   useEffect(() => {
-    const videoElement = videoRef.current;
-
-    const mediaSource = new MediaSource();
-    mediaSourceRef.current = mediaSource;
-
-    const handleSourceOpen = () => {
-      console.log('MediaSource opened');
-
-      const mimeCodec = 'video/webm; codecs=vp8'; 
-      
-      if (mediaSource.sourceBuffers.length === 0) {
-        const sourceBuffer = mediaSource.addSourceBuffer(mimeCodec);
-        sourceBufferRef.current = sourceBuffer;
-
-        sourceBuffer.addEventListener('updateend', () => {
-          isAppending.current = false;
-
-          // Append remaining chunks from the queue
-          if (queue.current.length > 0 && !sourceBuffer.updating) {
-            appendNextChunk();
-          }
-        });
+    const handleChunk = (chunk) => {
+      // Clean up old blob URL
+      if (currentUrlRef.current) {
+        URL.revokeObjectURL(currentUrlRef.current);
       }
 
-      socket.on('watch-chunk', (chunk) => {
-        console.log("39");
-        if (mediaSource.readyState === 'open') {
-          console.log("41");
-          if (!sourceBufferRef.current.updating && !isAppending.current) {
-            try {
-              console.log('Appending chunk directly...');
-              sourceBufferRef.current.appendBuffer(new Uint8Array(chunk));
-              isAppending.current = true;
-            } catch (error) {
-              console.error('AppendBuffer error:', error);
-              queue.current.push(new Uint8Array(chunk)); // Queue on error
-            }
-          } else {
-            console.log('Queuing chunk...');
-            queue.current.push(new Uint8Array(chunk));
-          }
-        }
-      });
-    };
+      const blob = new Blob([chunk], { type: 'video/mp4' });
+      const url = URL.createObjectURL(blob);
+      currentUrlRef.current = url;
 
-    // Function to append next chunk from queue
-    const appendNextChunk = () => {
-      if (queue.current.length > 0 && !sourceBufferRef.current.updating) {
-        const nextChunk = queue.current.shift();
-        try {
-          sourceBufferRef.current.appendBuffer(nextChunk);
-          isAppending.current = true;
-        } catch (error) {
-          console.error('Failed to append chunk from queue:', error);
-        }
+      const video = videoRef.current;
+      if (video) {
+        video.src = url;
+        video.load(); // Important
+        video.play(); // Try to autoplay
       }
     };
 
-    mediaSource.addEventListener('sourceopen', handleSourceOpen);
-
-    videoElement.src = URL.createObjectURL(mediaSource);
+    socket.on('watch-chunk', handleChunk);
 
     return () => {
-      socket.off('watch-chunk');
-      mediaSource.removeEventListener('sourceopen', handleSourceOpen);
-      if (mediaSourceRef.current) {
-        mediaSourceRef.current = null;
+      socket.off('watch-chunk', handleChunk);
+      if (currentUrlRef.current) {
+        URL.revokeObjectURL(currentUrlRef.current);
       }
     };
-  }, [roomId]);
+  }, []);
 
   return (
     <div>
-      <h1>Watch Stream</h1>
-      <video ref={videoRef} autoPlay playsInline controls />
+      <video ref={videoRef} controls width="640" height="360" />
     </div>
   );
 };
 
-export default Viewer;
+export default VideoViewer;

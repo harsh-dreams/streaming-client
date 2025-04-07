@@ -44,7 +44,7 @@ useEffect(()=>{
         }
       };
 
-      mediaRecorder.start(500); 
+      mediaRecorder.start(2500); 
 
 
   };
